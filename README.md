@@ -24,7 +24,7 @@ Ensure you are connected to your server as a user with `sudo` privileges.
 Execute the script directly from the repository:
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/DrSaeedHub/RootLogin/main/enable-root-login.sh)
+bash <(curl -Ls https://raw.githubusercontent.com/DrSaeedHub/RootSet/main/enable-root-login.sh)
 ```
 
 3. **Follow the Prompts:**
