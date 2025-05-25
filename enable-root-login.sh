@@ -13,79 +13,78 @@ cat <<'EOF'
 EOF
 echo -e "\033[0m"
 
-# Ensure the script is run as root
+# Ensure root
 if (( EUID != 0 )); then
   echo "This script must be run as root."
   echo "Usage: sudo bash $0"
   exit 1
 fi
 
-# Prompt for new root password
-read -rsp "Enter the new root password: " ROOT_PASSWORD
-echo
-read -rsp "Confirm the root password: " ROOT_PASSWORD_CONFIRM
-echo
+# Prompt for password
+read -rsp "Enter the new root password: " ROOT_PASSWORD; echo
+read -rsp "Confirm the root password: " ROOT_PASSWORD_CONFIRM; echo
 if [[ "$ROOT_PASSWORD" != "$ROOT_PASSWORD_CONFIRM" ]]; then
   echo "Error: passwords do not match."
   exit 1
 fi
 
-# Function to update or add a config directive
+# Helper to update or add a directive
 update_config() {
   local file="$1" directive="$2" value="$3"
   if grep -qE "^\s*#?\s*${directive}\b" "$file"; then
     sed -i -r "s|^\s*#?\s*(${directive}\b).*|\1 $value|" "$file"
   else
-    echo -e "\n# Enabled by enable-root-login.sh\nt${directive} $value" >> "$file"
+    echo -e "\n# Enabled by enable-root-login.sh\n${directive} $value" >> "$file"
   fi
 }
 
 echo "Updating SSH configuration..."
-
-# Main sshd_config
 SSHD_MAIN="/etc/ssh/sshd_config"
 update_config "$SSHD_MAIN" "PermitRootLogin" "yes"
 update_config "$SSHD_MAIN" "PasswordAuthentication" "yes"
 
-# Any conf.d snippets
+# Also handle any snippets
 for DIR in /etc/ssh/sshd_config.d /etc/ssh/ssh_config.d; do
-  if [[ -d "$DIR" ]]; then
-    for CFG in "$DIR"/*.conf; do
-      [[ -e "$CFG" ]] || continue
-      update_config "$CFG" "PermitRootLogin" "yes"
-      update_config "$CFG" "PasswordAuthentication" "yes"
-    done
-  fi
+  [[ -d "$DIR" ]] || continue
+  for CFG in "$DIR"/*.conf; do
+    [[ -e "$CFG" ]] || continue
+    update_config "$CFG" "PermitRootLogin" "yes"
+    update_config "$CFG" "PasswordAuthentication" "yes"
+  done
 done
 
-# Cloud-init overrides (older & newer paths)
+# Cloud-init overrides (if any)
 for CLOUD in \
   /etc/ssh/sshd_config.d/60-cloudimg-settings.conf \
   /etc/cloud/cloud.cfg.d/99_disable_root.cfg; do
-  if [[ -f "$CLOUD" ]]; then
-    update_config "$CLOUD" "PermitRootLogin" "yes"
-    update_config "$CLOUD" "PasswordAuthentication" "yes"
-  fi
+  [[ -f "$CLOUD" ]] || continue
+  update_config "$CLOUD" "PermitRootLogin" "yes"
+  update_config "$CLOUD" "PasswordAuthentication" "yes"
 done
 
-# Restart SSH service (systemd or service)
+# Restart SSH service (robust)
 echo "Restarting SSH service..."
 if command -v systemctl &>/dev/null; then
-  # Try common service names
-  for SVC in sshd ssh; do
-    if systemctl list-units --full -all | grep -qE "^${SVC}\.service"; then
-      systemctl restart "${SVC}.service"
-      echo "Restarted ${SVC}.service"
-      break
-    fi
-  done
+  if systemctl restart ssh; then
+    echo "Restarted ssh.service"
+  elif systemctl restart sshd; then
+    echo "Restarted sshd.service"
+  else
+    echo "Failed to restart any SSH service via systemctl." >&2
+    exit 1
+  fi
 else
-  # Fallback to service command
-  service ssh restart || service sshd restart
-  echo "Restarted SSH via service command"
+  if service ssh restart; then
+    echo "Restarted SSH via service ssh"
+  elif service sshd restart; then
+    echo "Restarted SSH via service sshd"
+  else
+    echo "Failed to restart any SSH service via service command." >&2
+    exit 1
+  fi
 fi
 
-# Apply the new root password
+# Set the root password
 echo "root:${ROOT_PASSWORD}" | chpasswd
 
 echo "✅ Root login via SSH with password is now enabled."
